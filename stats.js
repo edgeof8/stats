@@ -51,7 +51,7 @@
     };
 
     const escapeHTML = (str) => str.replace(/[&<>"']/g, m => ({
-        '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;'
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[m]));
 
     // --- UI Generation ---
@@ -83,6 +83,7 @@
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
                 font-size: 14px;
                 display: flex;
+                flex-direction: column; /* Ensure content and footer stack */
                 flex-direction: column;
                 overflow: hidden;
                 animation: edgeSlideIn 0.3s ease-out;
@@ -98,12 +99,16 @@
                 justify-content: space-between;
                 align-items: center;
             }
-            .header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+            .header h2 { margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1; }
             .close-btn { 
-                cursor: pointer; background: none; border: none; color: ${muted}; font-size: 20px; 
+                cursor: pointer; background: none; border: none; color: ${muted}; font-size: 20px;
+                padding: 4px; line-height: 1; border-radius: 4px; margin-left: 8px;
+            }
+            .copy-btn {
+                cursor: pointer; background: none; border: none; color: ${muted}; font-size: 16px;
                 padding: 4px; line-height: 1; border-radius: 4px;
             }
-            .close-btn:hover { color: ${fg}; background: ${isDark ? '#27272a' : '#f4f4f5'}; }
+            .close-btn:hover, .copy-btn:hover { color: ${fg}; background: ${isDark ? '#27272a' : '#f4f4f5'}; }
             
             .content { padding: 16px; overflow-y: auto; flex: 1; }
             
@@ -131,16 +136,25 @@
                 font-size: 11px; cursor: pointer; border-radius: 4px; transition: all 0.2s;
             }
             .wpm-btn.active { background: ${bg}; color: ${fg}; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            
+            .flash-highlight {
+                animation: flashHighlight 1s ease-out forwards;
+            }
+            @keyframes flashHighlight {
+                0% { background-color: ${accent}33; } /* Light tint of accent color */
+                100% { background-color: transparent; }
+            }
 
             .footer { padding: 12px 16px; border-top: 1px solid ${border}; font-size: 11px; color: ${muted}; display: flex; justify-content: space-between; }
         </style>
 
-        <div class="header">
+        <div class="header" role="banner">
             <h2>Page Statistics</h2>
-            <button class="close-btn" onclick="document.getElementById('${ID}').remove()">&times;</button>
+            <button class="copy-btn" title="Copy stats as Markdown" aria-label="Copy statistics as Markdown">📋</button>
+            <button class="close-btn" onclick="document.getElementById('${ID}').remove()" aria-label="Close statistics overlay">&times;</button>
         </div>
         
-        <div class="content">
+        <div class="content" role="main">
             <div class="grid">
                 <div class="stat-box">
                     <div class="stat-label">Words</div>
@@ -174,6 +188,14 @@
                     <div class="stat-label">Images</div>
                     <div class="stat-value" style="font-size: 14px;">${images.length} <span style="font-size: 10px; font-weight: normal; color: ${muted};">(${altPercentage}% alt)</span></div>
                 </div>
+                <div class="stat-box" style="padding: 8px;">
+                    <div class="stat-label">Code Blocks</div>
+                    <div class="stat-value" style="font-size: 14px;">${codeBlocks}</div>
+                </div>
+                <div class="stat-box" style="padding: 8px;">
+                    <div class="stat-label">Tables</div>
+                    <div class="stat-value" style="font-size: 14px;">${tables}</div>
+                </div>
             </div>
 
             <div class="section-title">Link Analysis</div>
@@ -205,12 +227,51 @@
             <span>Edge Toolkit: stats</span>
             <span>v0.1</span>
         </div>
-    `;
+    `; // End of overlay.innerHTML
+
+    // Set ARIA attributes for the overlay itself
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
 
     document.body.appendChild(overlay);
 
     // --- Event Handlers ---
     
+    // Markdown generation utility
+    const generateMarkdownStats = () => {
+        let markdown = `# Page Statistics\n\n`;
+        markdown += `## Overview\n`;
+        markdown += `- **Words**: ${words.toLocaleString()}\n`;
+        markdown += `- **Characters**: ${chars.toLocaleString()}\n`;
+        markdown += `- **Reading Time (250 WPM)**: ${formatTime(250)}\n\n`;
+
+        markdown += `## Content Breakdown\n`;
+        markdown += `- **Paragraphs**: ${paragraphs}\n`;
+        markdown += `- **Lists**: ${lists}\n`;
+        markdown += `- **Code Blocks**: ${codeBlocks}\n`;
+        markdown += `- **Tables**: ${tables}\n`;
+        markdown += `- **Images**: ${images.length} (${altPercentage}% with alt text)\n\n`;
+
+        markdown += `## Link Analysis\n`;
+        markdown += `- **Total Links**: ${links.length}\n`;
+        markdown += `- **Internal Links**: ${internalLinks}\n`;
+        markdown += `- **External Links**: ${externalLinks}\n`;
+        markdown += `- **Link Density**: ${linkDensity}%\n\n`;
+
+        if (headings.length > 0) {
+            markdown += `## Heading Outline\n`;
+            headings.forEach(h => {
+                const indent = '  '.repeat(h.level - 1);
+                markdown += `${indent}- H${h.level}: ${escapeHTML(h.text || 'Untitled Section')}\n`;
+            });
+            markdown += `\n`;
+        }
+
+        markdown += `---
+*Generated by Edge Toolkit: stats v0.1*`;
+        return markdown;
+    };
+
     // Reading Speed Toggles
     overlay.querySelectorAll('.wpm-btn').forEach(btn => {
         btn.onclick = () => {
@@ -227,11 +288,26 @@
             const index = item.dataset.index;
             headings[index].el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             // Flash effect on the heading
-            const originalColor = headings[index].el.style.color;
-            headings[index].el.style.color = accent;
-            setTimeout(() => { headings[index].el.style.color = originalColor; }, 1000);
+            headings[index].el.classList.add('flash-highlight');
+            setTimeout(() => {
+                headings[index].el.classList.remove('flash-highlight');
+            }, 1000);
         };
     });
+
+    // Copy to Markdown
+    overlay.querySelector('.copy-btn').onclick = async () => {
+        const markdown = generateMarkdownStats();
+        try {
+            await navigator.clipboard.writeText(markdown);
+            const originalTitle = document.title;
+            document.title = '📋 Copied!';
+            setTimeout(() => { document.title = originalTitle; }, 1000);
+        } catch (err) {
+            console.error('Failed to copy stats: ', err);
+            alert('Failed to copy stats to clipboard. Please check console for details.');
+        }
+    };
 
     // Escape Key to Close
     const escHandler = (e) => {
